@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+
+# Sysfetch: A command-line system information tool written in bash.
+# https://github.com/blackbeard173/sysfetch
+
+# ASCII -- !TODO
+
+# User
+getUser() {
+  # Get hostname. $HOST > $HOSTNAME > `hostname` > `uname -n`
+  HOST="${HOST:-${HOSTNAME:-$(hostname 2>/dev/null)}}"
+
+  # Show hostname and active-user information. $USER > `id -nu`
+  printf "${c5}%s${c2}@${c6}%s" "${USER:-$(id -nu)}" "${HOST:-$(uname -n)}"
+}
+
+# Distro
+getDistro() {
+  for FILE in /etc/os-release /usr/lib/os-release; do
+    [ -f "$FILE" ] && source "$FILE" && break
+  done
+  printf "${br}${*}  ${c6}%s""${PRETTY_NAME:-${NAME:-Unknown}}"
+}
+
+# Kernel
+getKernel() {
+  KVER=$(uname -r)
+  printf "${bg}${*}  ${c6}%s""${KVER}"
+}
+
+# Packages
+getPackages() {
+  for PM in \
+    apt \
+    dnf \
+    flatpak \
+    nix-env \
+    pacman; do
+    [ -x "$(command -v "$PM")" ] && PKG_MANAGER="${PKG_MANAGER} ${PM}"
+  done
+
+  # Count installed packages for each package manager.
+  for MANAGER in ${PKG_MANAGER#\ }; do
+    case "$MANAGER" in
+    apt)
+      GET_PKGS='/var/lib/dpkg/info/*.list'
+      ;;
+    dnf)
+      GET_PKGS="$(dnf list installed)"
+      ;;
+    flatpak)
+      GET_PKGS="$(flatpak --columns=app list)"
+      ;;
+    nix-env)
+      GET_PKGS="$(nix-env -q)"
+      # Print the NixOS package manager as "nix"
+      MANAGER='nix'
+      ;;
+    pacman)
+      GET_PKGS='/var/lib/pacman/local/[0-9a-z]*'
+      ;;
+    esac
+
+    # Count all queried packages.
+    TOTAL_PKGS="$(($(
+      set -- ${GET_PKGS}
+      echo "${#}"
+    ) - PKG_XCPT))"
+
+    # If only zero or one package is installed, make the package manager looks unrecognized.
+    case "$TOTAL_PKGS" in
+    0 | 1)
+      TOTAL_PKGS='?'
+      MANAGER='Unknown'
+      ;;
+    esac
+    # Preserve information across package managers.
+    PKGS_INFO="${PKGS_INFO}${TOTAL_PKGS} (${MANAGER}), "
+  done
+  # Show packages information.
+  printf "${by}${*}  ${c6}%s" "${PKGS_INFO%,\ }"
+}
+
+# Uptime
+getUptime() {
+  # Parse the system-uptime since boot.
+  IFS=. read -r s _ </proc/uptime
+
+  # Convert uptime into readable value.
+  d="$((s / 60 / 60 / 24))"
+  h="$((s / 60 / 60 % 24))"
+  m="$((s / 60 % 60))"
+
+  # Plurals.
+  [ "$d" -gt 1 ] && dp=s
+  [ "$h" -gt 1 ] && hp=s
+  [ "$m" -gt 1 ] && mp=s
+  [ "$s" -gt 1 ] && sp=s
+
+  # Hide empty fields and make the output of uptime smaller.
+  [ "$d" -eq 0 ] || UPTIME="${d} day${dp}, "
+  [ "$h" -eq 0 ] || UPTIME="${UPTIME}${h} hour${hp}, "
+  [ "$m" -eq 0 ] || UPTIME="${UPTIME}${m} min${mp}"
+  [ -n "$m" ] || UPTIME="${UPTIME}${s} sec${sp}"
+
+  # Show system-uptime information.
+  printf "${bb}${*}  ${c6}%s" "${UPTIME%,\ }"
+}
+
+# RAM
+getRAM() {
+  memTotal="$(grep -m1 'MemTotal' /proc/meminfo | awk '{print $2}')"
+  memAvailable="$(grep -m1 'MemAvailable' /proc/meminfo | awk '{print $2}')"
+  mem_used=$(((memTotal - memAvailable) / 1024))
+  mem_full=$((memTotal / 1024))
+  memstat="${mem_used} / ${mem_full} MiB"
+  mempercent="$((mem_used * 100 / mem_full))%"
+  printf "${bm}${*}  ${c6}%s %s" "${memstat} (${mempercent})"
+}
+
+# Palette
+getPalette() {
+  # Print color palette using escape sequences with custom glyph.
+  printf "\033[9%sm${*}  \033[0m" 1 2 3 4 5 6
+}
+
+# ANSI colour sequences.
+bo='\033[1m'    # Bold.
+c0='\033[30m'   # Black.
+c1='\033[31m'   # Red.
+c2='\033[32m'   # Green.
+c3='\033[33m'   # Yellow.
+c4='\033[34m'   # Blue.
+c5='\033[35m'   # Magenta.
+c6='\033[36m'   # Cyan.
+c7='\033[37m'   # White.
+c8='\033[90m'   # Grey.
+rs='\033[0m'    # Reset.
+br="${bo}${c1}" # Bold red.
+bg="${bo}${c2}" # Bold green.
+by="${bo}${c3}" # Bold yellow.
+bb="${bo}${c4}" # Bold blue.
+bm="${bo}${c5}" # Bold magenta.
+
+# Main
+printf "%s
+${rs}%s
+${rs}%s
+${rs}%s
+${rs}%s
+${rs}%s
+${rs}%s\n" \
+  "$(getUser)" \
+  "$(getDistro '')" \
+  "$(getKernel '')" \
+  "$(getPackages '')" \
+  "$(getUptime '')" \
+  "$(getRAM '')" \
+  "$(getPalette '')"
+
+exit ${?}
